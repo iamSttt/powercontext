@@ -99,4 +99,4 @@
 | seekdb 混合检索延迟 | 48~62ms（4 条文档） |
 | 写入 + 索引刷新 | ~120ms + ~500ms（4 条） |
 
-量化评测脚本：`frontend/scripts/eval-quantization.mjs`；完整技术说明：[docs/技术说明.md](docs/技术说明.md)
+量化评测脚本：`frontend/scripts/eval-quantization.mjs`；完整技术说明：[docs/tech-note.md](docs/tech-note.md)
