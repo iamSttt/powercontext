@@ -81,10 +81,10 @@ workflow:
         model:
           completion_params:
             temperature: 0.8
-            max_tokens: 1024
+            max_tokens: 4096
           mode: chat
-          name: ''
-          provider: ''
+          name: 'MiniMax-M3.1-Flash'
+          provider: 'langgenius/openai_api_compatible/openai_api_compatible'
         prompt_template:
         - role: system
           text: |
