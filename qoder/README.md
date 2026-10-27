@@ -46,7 +46,8 @@ python -m uvicorn app.main:app --port 8000
 ## Qoder 开发记录
 
 - 账号 UID：`01a17d7d-ff7c-7bd9-9c16-4e8f6f9223da`
-- 开发对话截图：由参赛者随提测材料上传（需求拆解 / 代码生成 / 调试修复）
+- **完整对话记录（27 条，自动导出并脱敏）**：[`development-record/Qoder开发记录.md`](development-record/Qoder开发记录.md)
+- 开发过程截图：由参赛者随提测材料上传（需求拆解 / 代码生成 / 调试修复）
 
 ## 提交时填写的字段
 
