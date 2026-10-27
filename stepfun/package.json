@@ -1,0 +1,18 @@
+{
+  "name": "stepfun-kb",
+  "version": "1.0.0",
+  "private": true,
+  "description": "端侧 embedding + seekdb 混合检索的迷你知识库（阶跃星辰赛题）",
+  "scripts": {
+    "install:all": "npm --prefix backend ci && npm --prefix frontend ci",
+    "build": "npm --prefix frontend run build",
+    "start": "node scripts/dev.mjs",
+    "start:backend": "node backend/server.js",
+    "start:frontend": "npm --prefix frontend run dev",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

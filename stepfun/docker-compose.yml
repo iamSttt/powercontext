@@ -1,0 +1,21 @@
+# One-command deployment: seekdb + the app (frontend build served by the Node backend).
+#   docker compose up --build -d     ->  http://localhost:3001
+services:
+  seekdb:
+    image: oceanbase/seekdb:latest
+    ports:
+      - "2881:2881"
+    volumes:
+      - ./data/seekdb:/var/lib/oceanbase
+
+  app:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      SEEKDB_HOST: seekdb
+      SEEKDB_PORT: "2881"
+      SEEKDB_USER: root
+      SEEKDB_PASSWORD: ""
+    depends_on:
+      - seekdb

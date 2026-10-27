@@ -2,6 +2,19 @@
 
 浏览器本地向量化 + seekdb 向量/全文混合检索的迷你知识库应用。
 
+## 提交材料对照
+
+| 题面要求 | 本仓库位置 |
+|---|---|
+| 可运行的 Web 应用 | `docker compose up --build -d` → http://localhost:3001（或 `npm start` 开发模式） |
+| 完整源码 | `backend/`（Node + seekdb-js）、`frontend/`（Vite + Transformers.js）、`scripts/`（模型下载/评测） |
+| 模型获取及量化步骤 | `scripts/download-models.sh`（fp32 + INT8/q8）、`frontend/src/embedder.ts`（dtype=q8） |
+| 一页技术说明 | [`docs/tech-note.md`](docs/tech-note.md) |
+| 量化前后体积与质量对比 | `frontend/scripts/eval-quantization.mjs` + 技术说明第 1、5 节 |
+| seekdb 表结构与索引配置 | `backend/seekdb-store.js`（HNSW 512 维 cosine + IK 全文；`refresh_index` 刷新策略） |
+| 增量写入与索引刷新 | `POST /api/collections/:name/documents`（写入后立即 `refresh_index()`，返回耗时） |
+| WebGPU 优先 / WASM 降级 | `frontend/src/embedder.ts`（自动降级 + 界面徽章提示） |
+
 ## 架构
 
 ```
@@ -30,27 +43,41 @@
 
 ## 启动步骤
 
-1. 确保 seekdb 运行（Docker Desktop 已启动时）：
+### 方式 A：Docker 一键启动（推荐，Linux/macOS/Windows 通用）
 
-   ```powershell
-   docker start seekdb
-   ```
+```bash
+bash start.sh          # 或：docker compose up --build -d
+```
 
-2. 启动后端（端口 3001，服务模型文件 + 对接 seekdb）：
+启动后访问 **http://localhost:3001**（同一端口同时提供页面、API 和模型文件）。
 
-   ```powershell
-   cd backend
-   npm install --legacy-peer-deps   # 首次
-   node server.js
-   ```
+包含两个服务：`seekdb`（oceanbase/seekdb:latest，MySQL 协议 2881）与 `app`（前端构建产物 + Node 后端）。
+数据持久化目录：`./data/seekdb`。
 
-3. 启动前端（端口 5173，浏览器打开 http://localhost:5173）：
+### 方式 B：本地 Node 运行（无需 Docker 前端构建，适合开发调试）
 
-   ```powershell
-   cd frontend
-   npm install --registry=https://registry.npmmirror.com   # 首次
-   npx vite
-   ```
+前置：Node ≥20 与一个可连接的 seekdb（可用 `docker run -d --name seekdb -p 2881:2881 oceanbase/seekdb:latest`）。
+
+```bash
+npm run install:all      # 安装 backend / frontend 依赖（首次）
+npm start                # 同时启动后端 :3001 与 Vite 开发服务器 :5173
+```
+
+浏览器打开 **http://localhost:5173**（开发模式）。生产式单进程运行：
+
+```bash
+npm run build            # 构建前端到 frontend/dist
+npm run start:backend    # 后端 :3001 同时托管页面、API 与模型
+```
+
+中国网络下安装依赖可加镜像：`npm config set registry https://registry.npmmirror.com`；
+模型下载可加镜像：`HF_ENDPOINT=https://hf-mirror.com bash scripts/download-models.sh`。
+
+### 方式 C：Windows 快速体验（开发机上）
+
+```bat
+start-all.bat
+```
 
    或直接运行仓库根目录的 `start-all.bat`。
 

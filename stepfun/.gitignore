@@ -5,3 +5,7 @@ backend/public/models/
 # build outputs
 frontend/dist/
 backend/*.log
+
+# local test artifacts
+backend/.embedded-test/
+data/

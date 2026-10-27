@@ -23,8 +23,22 @@ app.use(express.json({ limit: '64mb' }));
 // Model files (ONNX) are served statically so the browser loads them locally.
 app.use('/models', express.static(path.join(__dirname, 'public', 'models')));
 
-const client = await connectSeekdb();
-console.log(`[seekdb] connected, database ready`);
+// Retry: in docker-compose the seekdb service may still be starting when we boot.
+let client = null;
+for (let attempt = 1; attempt <= 20; attempt++) {
+  try {
+    client = await connectSeekdb();
+    console.log(`[seekdb] connected (attempt ${attempt})`);
+    break;
+  } catch (e) {
+    if (attempt === 20) {
+      console.error('[seekdb] connection failed after 20 attempts:', e.message || e);
+      process.exit(1);
+    }
+    console.warn(`[seekdb] not ready (attempt ${attempt}): ${e.message || e}; retrying in 3s`);
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+}
 
 app.get('/api/health', async (_req, res) => {
   try {
@@ -99,6 +113,19 @@ app.post('/api/collections/:name/search', async (req, res) => {
     res.status(500).json({ error: String(e.message || e) });
   }
 });
+
+// Serve the built frontend (single-process deployment: one URL serves app + API + models).
+import fs from 'node:fs';
+const distDir = process.env.FRONTEND_DIST || path.join(__dirname, '..', 'frontend', 'dist');
+if (fs.existsSync(path.join(distDir, 'index.html'))) {
+  app.use(express.static(distDir));
+  app.get(/^\/(?!api\/|models\/).*/, (_req, res) => {
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+  console.log(`[static] serving frontend from ${distDir}`);
+} else {
+  console.log(`[static] no frontend build at ${distDir} (dev mode: use the Vite dev server)`);
+}
 
 const PORT = Number(process.env.PORT || 3001);
 app.listen(PORT, () => {
