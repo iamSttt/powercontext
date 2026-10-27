@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PaperLens · 论文速读助手</title>
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --panel: #141924;
+      --panel-2: #0f1521;
+      --line: #232a38;
+      --text: #e6ebf5;
+      --muted: #8b95a9;
+      --accent: #5b9dff;
+      --accent-2: #7ee0c0;
+      --danger: #ff6b6b;
+      --warn: #ffc46b;
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      /* 固定视口高度：否则 grid 的 1fr 行高会被内容撑开，面板无法内部滚动 */
+      height: 100vh;
+      min-height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(1100px 560px at 8% -12%, #1a2440 0%, transparent 62%),
+        radial-gradient(900px 480px at 102% -6%, #14243a 0%, transparent 58%),
+        var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ---------- 顶部 ---------- */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px 10px;
+      flex-wrap: wrap;
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+
+    .logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      letter-spacing: .5px;
+      font-size: 15px;
+      color: #fff;
+      background: linear-gradient(135deg, #4f8dff, #7c6bff);
+      box-shadow: 0 10px 24px rgba(79, 141, 255, .28);
+    }
+
+    .brand h1 { margin: 0; font-size: 19px; letter-spacing: .3px; }
+    .brand p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 15px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #101623;
+      font-size: 12.5px;
+      max-width: 100%;
+    }
+
+    .status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex: none;
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, .04);
+    }
+
+    .status[data-state="ok"] .dot { background: var(--accent-2); box-shadow: 0 0 0 4px rgba(126, 224, 192, .14); }
+    .status[data-state="error"] .dot { background: var(--danger); box-shadow: 0 0 0 4px rgba(255, 107, 107, .14); }
+    .status[data-state="loading"] .dot { background: var(--warn); animation: pulse 1.1s ease-in-out infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .45; transform: scale(.82); }
+    }
+
+    /* ---------- 布局 ---------- */
+    .layout {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(300px, 1fr) minmax(360px, 1.3fr) minmax(280px, .92fr);
+      /* 行高限制在视口内，让每个面板自己滚动，而不是整页滚动 */
+      grid-template-rows: minmax(0, 1fr);
+      gap: 16px;
+      padding: 10px 24px 18px;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: linear-gradient(180deg, rgba(24, 30, 44, .94), rgba(17, 21, 29, .94));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, .28);
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 15px 18px;
+      border-bottom: 1px solid var(--line);
+      flex: none;
+    }
+
+    .panel-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+    .panel-head .hint { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+
+    .step {
+      font-size: 11px;
+      letter-spacing: .1em;
+      color: var(--accent);
+      border: 1px solid rgba(91, 157, 255, .35);
+      border-radius: 6px;
+      padding: 2px 6px;
+      flex: none;
+    }
+
+    .panel-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px 18px;
+      min-height: 0;
+      flex: 1 1 auto;
+      overflow-y: auto;
+    }
+
+    /* ---------- 表单 ---------- */
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field > span { color: var(--muted); font-size: 12px; }
+
+    input[type="text"],
+    textarea {
+      width: 100%;
+      background: #0d121b;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 10px 12px;
+      font-size: 13.5px;
+      font-family: inherit;
+      line-height: 1.6;
+      outline: none;
+      resize: vertical;
+      transition: border-color .15s, box-shadow .15s;
+    }
+
+    input[type="text"]:focus,
+    textarea:focus {
+      border-color: rgba(91, 157, 255, .6);
+      box-shadow: 0 0 0 3px rgba(91, 157, 255, .12);
+    }
+
+    textarea::placeholder, input::placeholder { color: #5c6679; }
+
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    button { font-family: inherit; }
+
+    .primary {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 13.5px;
+      font-weight: 650;
+      color: #fff;
+      background: linear-gradient(135deg, #4f8dff, #7c6bff);
+      cursor: pointer;
+      transition: filter .15s, transform .05s;
+    }
+
+    .primary:hover { filter: brightness(1.08); }
+    .primary:active { transform: translateY(1px); }
+    .primary:disabled { opacity: .55; cursor: not-allowed; filter: none; }
+
+    .ghost {
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .ghost:hover { color: var(--text); border-color: rgba(91, 157, 255, .45); }
+
+    .file-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px dashed var(--line);
+      border-radius: 9px;
+      padding: 8px 12px;
+      color: #b9c3d4;
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+
+    .file-btn:hover { border-color: rgba(91, 157, 255, .5); color: var(--text); }
+    .file-btn input { display: none; }
+
+    .file-name { color: var(--muted); font-size: 12px; word-break: break-all; }
+
+    /* ---------- 进度与反馈 ---------- */
+    .progress {
+      height: 0;
+      border-radius: 999px;
+      background: #101623;
+      overflow: hidden;
+      opacity: 0;
+      transition: opacity .2s;
+    }
+
+    .progress.active { height: 4px; opacity: 1; }
+
+    .progress .bar {
+      height: 100%;
+      width: 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #4f8dff, #7ee0c0);
+      transition: width .3s ease;
+    }
+
+    .feedback { margin: 0; font-size: 12.5px; line-height: 1.6; min-height: 1em; word-break: break-word; }
+    .feedback[data-type="ok"] { color: var(--accent-2); }
+    .feedback[data-type="error"] { color: var(--danger); }
+    .feedback[data-type="warn"] { color: var(--warn); }
+    .feedback[data-type="info"] { color: var(--muted); }
+
+    /* ---------- 提问区 ---------- */
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .chip {
+      background: #101623;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 5px 11px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .chip:hover { color: var(--text); border-color: rgba(91, 157, 255, .45); }
+
+    .answer-box {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel-2);
+      padding: 14px;
+      min-height: 150px;
+      /* 不参与 flex 收缩，否则长回答会溢出盖住下方的引用卡片 */
+      flex: none;
+    }
+
+    .answer-text {
+      margin: 0;
+      white-space: pre-wrap;
+      line-height: 1.78;
+      font-size: 14px;
+      color: #dde4f0;
+      word-break: break-word;
+    }
+
+    .answer-text strong { color: #fff; font-weight: 650; }
+
+    .answer-list {
+      margin: 6px 0;
+      padding-left: 20px;
+      /* 列表内部折叠源码换行，避免 pre-wrap 产生多余空白 */
+      white-space: normal;
+    }
+
+    .answer-list li { margin: 4px 0; }
+
+    .placeholder { color: var(--muted); font-size: 13px; line-height: 1.7; margin: 0; }
+
+    .cite-ref {
+      display: inline-block;
+      min-width: 20px;
+      text-align: center;
+      background: rgba(91, 157, 255, .17);
+      color: #a6c9ff;
+      border-radius: 5px;
+      padding: 0 4px;
+      margin: 0 1px;
+      font-size: 11.5px;
+      font-weight: 700;
+    }
+
+    .notice {
+      border-radius: 10px;
+      border: 1px solid rgba(255, 196, 107, .35);
+      background: rgba(255, 196, 107, .08);
+      color: #ffd79a;
+      padding: 9px 12px;
+      font-size: 12.5px;
+      line-height: 1.65;
+    }
+
+    .notice[data-type="empty"] {
+      border-color: var(--line);
+      background: #101623;
+      color: var(--muted);
+    }
+
+    .notice[data-type="error"] {
+      border-color: rgba(255, 107, 107, .4);
+      background: rgba(255, 107, 107, .08);
+      color: #ffb3b3;
+    }
+
+    .loading { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+
+    .spinner {
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      border: 2px solid rgba(91, 157, 255, .22);
+      border-top-color: var(--accent);
+      animation: spin .8s linear infinite;
+      flex: none;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .section-title {
+      margin: 4px 0 0;
+      font-size: 12px;
+      letter-spacing: .08em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    /* ---------- 引用卡片 ---------- */
+    .citations { display: flex; flex-direction: column; gap: 10px; }
+
+    .cite-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #0f1521;
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+
+    .cite-card:hover { border-color: rgba(91, 157, 255, .45); background: #111a29; }
+    .cite-card.open { border-color: rgba(91, 157, 255, .5); }
+
+    .cite-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .cite-tag { color: var(--accent); font-weight: 700; font-size: 13px; }
+    .cite-title { font-size: 13px; font-weight: 600; }
+    .cite-meta { color: var(--muted); font-size: 11.5px; margin-left: auto; }
+
+    .cite-snippet {
+      margin: 8px 0 0;
+      font-size: 12.5px;
+      line-height: 1.68;
+      color: #aab6c9;
+      word-break: break-word;
+    }
+
+    .cite-full {
+      margin: 10px 0 0;
+      padding-top: 10px;
+      border-top: 1px dashed var(--line);
+      font-size: 12.5px;
+      line-height: 1.78;
+      color: #c6d0e2;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .cite-full[hidden] { display: none; }
+
+    /* ---------- 历史 ---------- */
+    .history-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .history-item {
+      width: 100%;
+      text-align: left;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+
+    .history-item:hover { border-color: rgba(91, 157, 255, .4); }
+    .history-item .q { font-size: 13px; font-weight: 600; line-height: 1.55; word-break: break-word; }
+    .history-item .meta { margin-top: 5px; color: var(--muted); font-size: 11.5px; }
+
+    .history-item .a {
+      display: none;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--line);
+      font-size: 12.5px;
+      line-height: 1.72;
+      color: #b9c3d4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .history-item.open .a { display: block; }
+
+    footer {
+      padding: 0 24px 16px;
+      text-align: center;
+      color: #5f6a7e;
+      font-size: 11.5px;
+    }
+
+    /* ---------- 响应式 ---------- */
+    @media (max-width: 1180px) {
+      body { height: auto; min-height: 100vh; overflow: auto; }
+      .layout { grid-template-columns: 1fr; grid-template-rows: none; }
+      /* 窄屏改为整页滚动，避免面板内滚动把按钮从中间裁断 */
+      .panel { max-height: none; }
+      .panel-body { max-height: none; }
+      .answer-box { min-height: 120px; }
+    }
+
+    @media (max-width: 560px) {
+      .topbar { padding: 14px 16px 6px; }
+      .layout { padding: 8px 16px 16px; gap: 12px; }
+      footer { padding: 0 16px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">PL</div>
+      <div>
+        <h1>PaperLens</h1>
+        <p>论文速读助手 · 提问即定位原文段落</p>
+      </div>
+    </div>
+    <div class="status" id="status-badge" data-state="loading" title="正在检查 seekdb 连接">
+      <span class="dot"></span>
+      <span id="status-text">正在连接 seekdb…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 一、导入 -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="step">01</span>
+        <h2>导入论文</h2>
+        <span class="hint">.txt / .md 或粘贴</span>
+      </div>
+      <div class="panel-body">
+        <label class="field">
+          <span>论文标题</span>
+          <input type="text" id="paper-title" maxlength="255" placeholder="例如：Attention Is All You Need" />
+        </label>
+
+        <label class="field">
+          <span>正文 / 摘要</span>
+          <textarea id="paper-content" rows="11" placeholder="粘贴论文摘要或正文，建议保留段落之间的空行，分块会更准确…"></textarea>
+        </label>
+
+        <div class="row">
+          <label class="file-btn">
+            选择文件
+            <input type="file" id="file-input" accept=".txt,.md,.markdown,text/plain" />
+          </label>
+          <span class="file-name" id="file-name">未选择文件</span>
+        </div>
+
+        <button class="primary" id="import-btn" type="button">导入并分块</button>
+
+        <div class="progress" id="import-progress"><div class="bar" id="import-bar"></div></div>
+        <p class="feedback" id="import-feedback" data-type="info" aria-live="polite">
+          单块不超过 600 字；重复导入同一标题会覆盖旧内容。
+        </p>
+      </div>
+    </section>
+
+    <!-- 二、提问 -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="step">02</span>
+        <h2>提问与引用</h2>
+        <span class="hint">IK 全文检索 + MiniMax</span>
+      </div>
+      <div class="panel-body">
+        <label class="field">
+          <span>你的问题</span>
+          <textarea id="question" rows="3" placeholder="例如：论文用了什么方法？实验结果如何？"></textarea>
+        </label>
+
+        <div class="chips">
+          <button class="chip" type="button">论文用了什么方法？</button>
+          <button class="chip" type="button">实验设置和结果如何？</button>
+          <button class="chip" type="button">主要结论是什么？</button>
+        </div>
+
+        <div class="row">
+          <button class="primary" id="ask-btn" type="button">提问</button>
+          <span class="file-name" id="ask-hint">回答只依据检索到的段落，并标注 [编号]</span>
+        </div>
+
+        <div class="answer-box" id="answer-box">
+          <p class="placeholder">检索结果会展示在这里。回答中的 [1][2] 对应下方引用卡片。</p>
+        </div>
+
+        <p class="section-title" id="citations-title" hidden>引用来源</p>
+        <div class="citations" id="citations"></div>
+      </div>
+    </section>
+
+    <!-- 三、历史 -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="step">03</span>
+        <h2>历史记录</h2>
+        <button class="ghost" id="refresh-history" type="button">刷新</button>
+      </div>
+      <div class="panel-body">
+        <div class="history-list" id="history-list">
+          <p class="placeholder">加载中…</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>PaperLens · 数据全部存放在本地 seekdb（IK 全文索引），回答由 MiniMax 生成</footer>
+
+  <script>
+    "use strict";
+
+    const $ = (selector) => document.querySelector(selector);
+
+    // 统一转义，所有模型/用户文本都经过这里，避免 XSS
+    function escapeHtml(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[ch]));
+    }
+
+    // 回答渲染：转义 → 去 Markdown 标题 → 列表 → 加粗 → 引用编号高亮
+    function renderAnswerHtml(text) {
+      const escapeInline = (line) =>
+        line
+          .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+          .replace(/\[(\d+)\]/g, '<span class="cite-ref">[$1]</span>');
+
+      const lines = escapeHtml(text)
+        .replace(/^#{1,6}\s+(.+)$/gm, "$1")
+        .split("\n");
+
+      const html = [];
+      let items = [];
+      const flushList = () => {
+        if (items.length) {
+          html.push('<ul class="answer-list">' + items.join("") + "</ul>");
+          items = [];
+        }
+      };
+
+      lines.forEach((line) => {
+        const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+        if (bullet) {
+          items.push("<li>" + escapeInline(bullet[1]) + "</li>");
+        } else {
+          flushList();
+          html.push(escapeInline(line));
+        }
+      });
+      flushList();
+      return html.join("\n");
+    }
+
+    function formatDetail(detail) {
+      if (!detail) return "";
+      if (typeof detail === "string") return detail;
+      if (Array.isArray(detail)) {
+        return detail.map((item) => item.msg || JSON.stringify(item)).join("；");
+      }
+      return JSON.stringify(detail);
+    }
+
+    // 统一请求封装：后端错误统一放在 detail 字段
+    async function api(path, options = {}) {
+      let response;
+      try {
+        response = await fetch(path, {
+          headers: { "Content-Type": "application/json" },
+          ...options,
+        });
+      } catch (err) {
+        throw new Error("无法连接后端服务，请确认 uvicorn 已启动（端口 8000）。");
+      }
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (err) {
+        data = null;
+      }
+      if (!response.ok) {
+        const message = formatDetail(data && (data.detail || data.error));
+        throw new Error(message || `请求失败（HTTP ${response.status}）`);
+      }
+      return data;
+    }
+
+    /* ------------------------- 顶部状态徽章 ------------------------- */
+    async function refreshHealth() {
+      const badge = $("#status-badge");
+      const text = $("#status-text");
+      badge.dataset.state = "loading";
+      text.textContent = "正在连接 seekdb…";
+      try {
+        const data = await api("/api/health");
+        badge.dataset.state = "ok";
+        badge.title = `${data.version} · ${data.host} · 库 ${data.database}`;
+        text.textContent = `seekdb 已连接 · ${data.chunks} 个段落`;
+      } catch (err) {
+        badge.dataset.state = "error";
+        badge.title = err.message;
+        text.textContent = "seekdb 未连接";
+        setImportFeedback(err.message, "error");
+      }
+    }
+
+    /* ------------------------- 导入论文 ------------------------- */
+    const importBtn = $("#import-btn");
+    const importBar = $("#import-bar");
+    const importProgress = $("#import-progress");
+    const importFeedback = $("#import-feedback");
+    let progressTimer = null;
+
+    function setImportFeedback(message, type) {
+      importFeedback.textContent = message;
+      importFeedback.dataset.type = type || "info";
+    }
+
+    function startProgress() {
+      importProgress.classList.add("active");
+      let width = 8;
+      importBar.style.width = "8%";
+      clearInterval(progressTimer);
+      // 后端没有流式进度，这里只表达"正在处理"
+      progressTimer = setInterval(() => {
+        width = Math.min(width + Math.random() * 12, 88);
+        importBar.style.width = width + "%";
+      }, 220);
+    }
+
+    function stopProgress(ok) {
+      clearInterval(progressTimer);
+      importBar.style.width = ok ? "100%" : "0%";
+      setTimeout(() => {
+        importProgress.classList.remove("active");
+        importBar.style.width = "0%";
+      }, ok ? 900 : 400);
+    }
+
+    $("#file-input").addEventListener("change", (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      $("#file-name").textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = String(reader.result || "");
+        $("#paper-content").value = text;
+        if (!$("#paper-title").value.trim()) {
+          $("#paper-title").value = file.name.replace(/\.(txt|md|markdown)$/i, "");
+        }
+        setImportFeedback(`已读取文件，共 ${text.length} 字，点击「导入并分块」写入 seekdb。`, "info");
+      };
+      reader.onerror = () => setImportFeedback("读取文件失败，请改用粘贴导入。", "error");
+      reader.readAsText(file, "utf-8");
+    });
+
+    async function importPaper() {
+      const title = $("#paper-title").value.trim();
+      const content = $("#paper-content").value.trim();
+
+      if (!title) {
+        setImportFeedback("请先填写论文标题。", "error");
+        $("#paper-title").focus();
+        return;
+      }
+      if (!content) {
+        setImportFeedback("请粘贴正文，或先选择一个 .txt / .md 文件。", "error");
+        $("#paper-content").focus();
+        return;
+      }
+
+      importBtn.disabled = true;
+      importBtn.textContent = "导入中…";
+      startProgress();
+      setImportFeedback("正在分块并写入 seekdb…", "info");
+
+      try {
+        const data = await api("/api/papers", {
+          method: "POST",
+          body: JSON.stringify({ title, content }),
+        });
+        stopProgress(true);
+        setImportFeedback(
+          `《${data.paper_title}》导入成功：${data.chunks} 个段落（平均 ${data.avg_chars} 字），库内共 ${data.total_chunks} 个段落。`,
+          "ok"
+        );
+        $("#file-input").value = "";
+        refreshHealth();
+      } catch (err) {
+        stopProgress(false);
+        setImportFeedback("导入失败：" + err.message, "error");
+      } finally {
+        importBtn.disabled = false;
+        importBtn.textContent = "导入并分块";
+      }
+    }
+
+    importBtn.addEventListener("click", importPaper);
+
+    /* ------------------------- 提问与引用 ------------------------- */
+    const askBtn = $("#ask-btn");
+    const answerBox = $("#answer-box");
+    const citationsBox = $("#citations");
+    const citationsTitle = $("#citations-title");
+
+    function showNotice(message, type) {
+      const div = document.createElement("div");
+      div.className = "notice";
+      div.dataset.type = type || "warn";
+      div.textContent = message;
+      answerBox.appendChild(div);
+    }
+
+    function renderAnswer(data) {
+      answerBox.innerHTML = "";
+
+      if (data.degraded) {
+        const reason = String(data.note || "模型调用失败").replace(/[。.!！]+$/, "");
+        showNotice(
+          "未使用 MiniMax 生成回答：" + reason +
+            "。当前展示的是 seekdb 检索到的原文摘录（离线降级模式）。",
+          "warn"
+        );
+      }
+
+      const paragraph = document.createElement("div");
+      paragraph.className = "answer-text";
+      paragraph.innerHTML = renderAnswerHtml(data.answer || "");
+      answerBox.appendChild(paragraph);
+
+      if ((!data.citations || data.citations.length === 0) && data.note !== "no_hits") {
+        showNotice("未在该论文库中找到相关内容：可以换一种问法，或先导入相关论文。", "empty");
+      }
+    }
+
+    function renderCitations(items) {
+      citationsBox.innerHTML = "";
+      if (!items || items.length === 0) {
+        citationsTitle.hidden = true;
+        return;
+      }
+      citationsTitle.hidden = false;
+
+      items.forEach((item) => {
+        const card = document.createElement("article");
+        card.className = "cite-card";
+
+        const head = document.createElement("div");
+        head.className = "cite-head";
+
+        const tag = document.createElement("span");
+        tag.className = "cite-tag";
+        tag.textContent = `[${item.index}]`;
+
+        const title = document.createElement("span");
+        title.className = "cite-title";
+        title.textContent = `《${item.paper_title}》`;
+
+        const meta = document.createElement("span");
+        meta.className = "cite-meta";
+        meta.textContent = `第 ${item.chunk_index + 1} 段 · 相关度 ${item.score}`;
+
+        head.append(tag, title, meta);
+
+        const snippet = document.createElement("p");
+        snippet.className = "cite-snippet";
+        snippet.textContent = `${item.snippet}…`;
+
+        const full = document.createElement("p");
+        full.className = "cite-full";
+        full.textContent = item.content;
+        full.hidden = true;
+
+        card.append(head, snippet, full);
+        card.title = "点击展开 / 收起完整段落";
+        card.addEventListener("click", () => {
+          full.hidden = !full.hidden;
+          card.classList.toggle("open", !full.hidden);
+        });
+
+        citationsBox.appendChild(card);
+      });
+    }
+
+    async function askQuestion() {
+      const question = $("#question").value.trim();
+      if (!question) {
+        answerBox.innerHTML = "";
+        showNotice("请先输入问题。", "error");
+        $("#question").focus();
+        return;
+      }
+
+      askBtn.disabled = true;
+      askBtn.textContent = "检索中…";
+      citationsTitle.hidden = true;
+      citationsBox.innerHTML = "";
+      answerBox.innerHTML =
+        '<div class="loading"><span class="spinner"></span>正在 seekdb 检索段落，并调用 MiniMax 生成回答…</div>';
+
+      try {
+        const data = await api("/api/ask", {
+          method: "POST",
+          body: JSON.stringify({ question }),
+        });
+        renderAnswer(data);
+        renderCitations(data.citations);
+        loadHistory();
+      } catch (err) {
+        answerBox.innerHTML = "";
+        showNotice(err.message, "error");
+      } finally {
+        askBtn.disabled = false;
+        askBtn.textContent = "提问";
+      }
+    }
+
+    askBtn.addEventListener("click", askQuestion);
+
+    // Ctrl / Cmd + Enter 快捷提问
+    $("#question").addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        askQuestion();
+      }
+    });
+
+    document.querySelectorAll(".chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        $("#question").value = chip.textContent.trim();
+        askQuestion();
+      });
+    });
+
+    /* ------------------------- 历史记录 ------------------------- */
+    const historyList = $("#history-list");
+
+    function renderHistory(items) {
+      historyList.innerHTML = "";
+      if (!items || items.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "placeholder";
+        empty.textContent = "还没有问答记录，先提一个问题吧。";
+        historyList.appendChild(empty);
+        return;
+      }
+
+      items.forEach((item) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "history-item";
+
+        const question = document.createElement("div");
+        question.className = "q";
+        question.textContent = item.question;
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const citationCount = (item.citations || []).length;
+        meta.textContent = `${item.created_at} · ${citationCount} 条引用`;
+
+        const answer = document.createElement("div");
+        answer.className = "a";
+        // 与回答区保持一致的轻量渲染（引用高亮 + 加粗）
+        answer.innerHTML = renderAnswerHtml(item.answer);
+
+        card.append(question, meta, answer);
+        card.addEventListener("click", () => card.classList.toggle("open"));
+        historyList.appendChild(card);
+      });
+    }
+
+    async function loadHistory() {
+      try {
+        const data = await api("/api/history");
+        renderHistory(data.items);
+      } catch (err) {
+        historyList.innerHTML = "";
+        const div = document.createElement("div");
+        div.className = "notice";
+        div.dataset.type = "error";
+        div.textContent = "历史记录加载失败：" + err.message;
+        historyList.appendChild(div);
+      }
+    }
+
+    $("#refresh-history").addEventListener("click", loadHistory);
+
+    /* ------------------------- 启动 ------------------------- */
+    refreshHealth();
+    loadHistory();
+  </script>
+</body>
+</html>
