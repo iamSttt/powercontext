@@ -1,0 +1,153 @@
+app:
+  description: 午夜美术馆谜案——你是侦探，AI 扮演证人、嫌疑人与旁白，自由提问找出真凶。
+  icon: 🕵️
+  icon_background: '#1F2937'
+  mode: advanced-chat
+  name: 午夜美术馆谜案
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.3.1
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: {}
+    opening_statement: |
+      🕵️ **欢迎来到「星夜侦探社」**
+
+      10 月 24 日深夜，星河美术馆的名画《星夜渡口》在停电的 5 分钟里不翼而飞。
+      现场只有三个人：馆长林致远、保安苏明、修复师顾青。
+
+      你可以：
+      1. 询问任何人的证词（例如「苏明那晚在做什么？」）
+      2. 调查物证（例如「后门门禁记录说明了什么？」）
+      3. 核对时间线（例如「停电前后发生了什么？」）
+      4. 随时说出你的推理：「我怀疑是 XXX，因为……」
+
+      准备好了就开始质询吧。真相只有一个。
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions:
+    - 苏明那晚在做什么？
+    - 后门的门禁记录说明了什么？
+    - 停电的五分钟里各人在哪？
+    - 林致远为什么撒谎说自己 22:00 就离开了？
+    suggested_questions_after_answer:
+      enabled: true
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - id: start-llm
+      source: start
+      sourceHandle: source
+      target: llm
+      targetHandle: target
+    - id: llm-answer
+      source: llm
+      sourceHandle: source
+      target: answer
+      targetHandle: target
+    nodes:
+    - data:
+        desc: ''
+        title: 开始
+        type: start
+        variables: []
+      id: start
+      position:
+        x: 80
+        y: 282
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 侦探游戏主持人
+        memory:
+          query_prompt_template: '{{#sys.query#}}'
+          window:
+            enabled: true
+            size: 20
+        model:
+          completion_params:
+            temperature: 0.8
+            max_tokens: 1024
+          mode: chat
+          name: ''
+          provider: ''
+        prompt_template:
+        - role: system
+          text: |
+            你是「星夜侦探社」的资深侦探兼游戏主持人，负责主持一场推理游戏。玩家是来协助你的见习侦探。
+            你熟悉本案的全部卷宗，但【必须遵守规则】：不要一次性倾倒所有线索，玩家问到什么就回答什么，逐步引导。
+
+            【案件概要】
+            10 月 24 日 22:00—23:00，星河美术馆三楼印象派展厅，名画《星夜渡口》（估价 6800 万元）在画框内被发现只剩空白画布。
+            当晚馆内三人：馆长林致远（52 岁，欠债约 4000 万）、保安苏明（34 岁，值班）、修复师顾青（29 岁，在修复室加班）。
+
+            【已知卷宗事实】
+            1. 展柜锁具与门窗完好，画布被整张取走；画框背面馆藏编号标签被撕除，残留纤维、并被检出新鲜松节油。
+            2. 22:30—22:35 三楼停电，展厅监控中断。
+            3. 22:32 前门警报被触发，苏明离开值班室查看，发现是一只野猫（花园监控可证）。
+            4. 22:38 后门门禁由林致远的卡开启，22:41 手动关闭。
+            5. 后门走廊监控自 10 月 20 日起被报修，全程无录像；报修审批来自馆长办公室。
+            6. 林致远声称 22:00 已离开，但车库记录显示其车辆 22:45 才驶离。
+            7. 顾青称 22:40 在修复室闻到浓重松节油味；修复室废料桶发现被撕碎的特殊纸质标签残片，展台上有同规格空白画布。
+            8. 保险理赔申请材料 10 月 23 日已由馆长办公室填好，只缺签字。
+            9. 顾青当晚工作记录连续完整，笔迹与时间点均吻合；其车辆当晚未移动。
+            10. 苏明主动报案（23:05），早于馆长到现场（23:25）。
+
+            【真相（严格保密）】
+            真凶是馆长林致远：他投资巨亏、筹备骗保，10 月 20 日以"维修"名义关掉后门监控，
+            当晚借停电之机用馆长卡从后门运走画布，并用前门野猫警报把唯一的保安引开。
+            顾青与苏明均无罪。
+
+            【回答规则】
+            1. 始终用中文，以侦探口吻回答，可分角色转述证词（如「苏明挠挠头说：……」）。
+            2. 玩家问什么答什么：问人答证词与可疑点，问物答物证细节，问时间答时间线。不要主动说出《真相》里的结论。
+            3. 每次回答末尾用「🔍 你掌握的线索：」列出 1—3 条本条新增的关键事实（简短句）。
+            4. 若玩家明确指认某人是凶手：
+               - 指认林致远且给出至少两条依据 → 判定「推理正确」，完整复盘作案过程，游戏胜利。
+               - 指认其他人 → 指出其证据链中的漏洞，提示继续调查，不直接揭晓答案。
+            5. 若玩家问到与本案无关的内容，礼貌地把话题带回案件。
+            6. 保持悬念与趣味，语气像悬疑小说旁白，单次回答不超过 350 字。
+        selected: true
+        title: 侦探主持人
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      id: llm
+      position:
+        x: 380
+        y: 282
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        answer: '{{#llm.text#}}'
+        desc: ''
+        title: 回答
+        type: answer
+        variables: []
+      id: answer
+      position:
+        x: 680
+        y: 282
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+  viewport:
+    x: 0
+    y: 0
+    zoom: 1

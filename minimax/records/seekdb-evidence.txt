@@ -1,0 +1,22 @@
+Tables_in_minimax_sdd
+sdd_documents
+kind	path	updated_at
+code	business/library/loans.py	2026-10-27 20:46:16
+spec	specs/loan-status-filter.md	2026-10-27 20:46:16
+spec	specs/regression-contract.md	2026-10-27 20:46:16
+test	business/tests/test_loans_basic.py	2026-10-27 20:46:16
+test	business/tests/test_loans_filter.py	2026-10-27 20:46:16
+docs
+5
+*************************** 1. row ***************************
+       Table: sdd_documents
+Create Table: CREATE TABLE `sdd_documents` (
+  `doc_id` varchar(64) NOT NULL,
+  `kind` varchar(16) NOT NULL,
+  `path` varchar(255) NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `content` longtext NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`doc_id`),
+  FULLTEXT KEY `idx_fts_content` (`content`) WITH PARSER ik PARSER_PROPERTIES=(ik_mode="smart") BLOCK_SIZE 16384
+) ORGANIZATION INDEX DEFAULT CHARSET = utf8mb4 ROW_FORMAT = DYNAMIC COMPRESSION = 'zstd_1.3.8' BLOCK_SIZE = 16384 TABLET_SIZE = 134217728 PCTFREE = 0

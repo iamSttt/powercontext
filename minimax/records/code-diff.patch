@@ -1,0 +1,28 @@
+--- records/loans-before.py	2026-10-27 20:44:17.878653200 +0800
++++ business/library/loans.py	2026-10-27 20:44:17.885894800 +0800
+@@ -24,14 +24,24 @@
+         return "returned" if self.returned_on is not None else "borrowed"
+ 
+ 
+-def list_loans(loans: list[Loan], borrower: str | None = None) -> list[Loan]:
++def list_loans(
++    loans: list[Loan],
++    borrower: str | None = None,
++    status: str | None = None,
++) -> list[Loan]:
+     """返回借阅记录，按 loan_id 升序。
+ 
+     borrower 不为 None 时，只返回该借阅人的记录。
++    status 不为 None 时，按借阅状态筛选记录。
+     """
++    if status not in (None, "borrowed", "returned"):
++        raise ValueError(f"invalid status: {status}")
++
+     result = list(loans)
+     if borrower is not None:
+         result = [loan for loan in result if loan.borrower == borrower]
++    if status is not None:
++        result = [loan for loan in result if loan.status == status]
+     return sorted(result, key=lambda loan: loan.loan_id)
+ 
+ 

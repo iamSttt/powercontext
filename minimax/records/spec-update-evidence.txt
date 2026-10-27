@@ -1,0 +1,5 @@
+[更新前] 规格中无「补充验收标准 8」，检索命中：0 条
+[更新后] 重新索引完成，检索命中：1 条
+[更新后] seekdb 中的规格末尾内容：…更记录  - 2026-10-27：补充验收标准 8——非法 status 的异常信息必须包含该值本身（例如 `invalid status: lost`）。 
+[上下文模块] 检索来源：['specs/loan-status-filter.md', 'business/library/loans.py', 'business/tests/test_loans_filter.py']
+[上下文模块] 规格片段包含新增段落：True
