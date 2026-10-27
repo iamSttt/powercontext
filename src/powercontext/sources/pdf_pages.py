@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -43,6 +44,11 @@ _FISCAL_YEAR = re.compile(r"^fy(\d{2}|\d{4})$")
 _SUBJECT_HINT = re.compile(r"\b(?:[A-Z][a-z]+[A-Z][A-Za-z]*|[A-Z]{3,})\b")
 _MAX_SUBJECT_HINTS = 4
 _SUBJECT_BONUS = 1.2
+# A question term that is also a substring of the candidate page's own document id
+# (the first content line) pins the page to the company the question names — this
+# counteracts cross-document flooding when every report carries identical statement
+# boilerplate.
+_DOC_ANCHOR_BONUS = 3.0
 # Exhibit-only appendices (pension plans, indentures, certifications) repeat question words
 # far more often than the report body does, so prefer pages carrying the report's own
 # running header when the file has one.
@@ -235,7 +241,7 @@ _FINANCE_PROBES: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
             "segment",
             "segments",
         }),
-        ("segment information", "geographic"),
+        ("segment information", "geographic", "north america", "latin america", "business segment"),
     ),
     (
         frozenset({"asset", "assets", "borrowings", "debt", "leverage", "liabilities", "liability"}),
@@ -252,6 +258,40 @@ _FINANCE_PROBES: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
         ),
     ),
     (
+        frozenset({"capital", "intensive"}),
+        (
+            "capital expenditures",
+            "property plant and equipment",
+            "purchases of property",
+            "consolidated statement of income",
+            "consolidated balance sheet",
+            "consolidated statements of cash flows",
+        ),
+    ),
+    (
+        frozenset({"liquidity", "quick", "ratio", "solvency"}),
+        (
+            "consolidated balance sheets",
+            "consolidated balance sheet",
+            "balance sheets",
+            "balance sheet",
+            "current assets",
+            "current liabilities",
+        ),
+    ),
+    (
+        frozenset({"customer", "customers"}),
+        ("major customers", "customer concentration", "u.s. government", "government contracts"),
+    ),
+    (
+        frozenset({"cogs"}),
+        ("cost of sales", "cost of goods sold", "cost of revenue"),
+    ),
+    (
+        frozenset({"categories", "category"}),
+        ("business segment data", "summary of business segment"),
+    ),
+    (
         frozenset({"dividend", "dividends", "buyback", "repurchase", "shareholder", "shareholders"}),
         ("share repurchase", "dividends"),
     ),
@@ -261,7 +301,7 @@ _FINANCE_PROBES: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
     ),
     (
         frozenset({"effective", "tax", "taxes"}),
-        ("effective tax rate", "provision for income taxes"),
+        ("effective tax rate", "provision for income taxes", "income tax expense", "before income taxes"),
     ),
     (
         frozenset({"pension", "retirement"}),
@@ -270,7 +310,7 @@ _FINANCE_PROBES: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
 )
 _RAW_PROBES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("d&a", ("depreciation and amortization",)),
-    ("p&l", ("consolidated statement of income",)),
+    ("p&l", ("consolidated statement of income", "consolidated statements of operations")),
 )
 
 _VARIANT_LIMIT = 28
@@ -466,7 +506,7 @@ async def search_pdf_pages(
                 candidate.rrf += contribution
     if not candidates:
         return ()
-    ordered = _rank_candidates(terms, _subject_hints(question), candidates)
+    ordered = _rank_candidates(terms, _subject_hints(question), candidates, probes=_finance_probes(question, terms))
     citations: list[MemoryCitation] = []
     seen_pages: set[str] = set()
     for entry_id in ordered:
@@ -715,10 +755,42 @@ def _subject_hints(question: str) -> tuple[str, ...]:
     return tuple(hints)
 
 
+def _stem(token: str) -> str:
+    """Light plural folding used only for phrase-adjacency bonuses."""
+
+    if len(token) > 4 and token.endswith("es"):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s"):
+        return token[:-1]
+    return token
+
+
+def _forms(term: str) -> frozenset[str]:
+    """Morphological variants of one question term for page-token matching.
+
+    Financial pages pluralize or conjugate question words (``revenue`` versus
+    ``Revenues``, ``category`` versus ``categories``), so exact-token matching alone
+    undercounts pages that carry the answer.
+    """
+
+    forms = {term}
+    if len(term) >= 3:
+        forms.add(term + "s")
+        forms.add(term + "es")
+        if term.endswith("s"):
+            forms.add(term[:-1])
+        if term.endswith("es"):
+            forms.add(term[:-2])
+        if term.endswith("ies"):
+            forms.add(term[:-3] + "y")
+    return frozenset(forms)
+
+
 def _rank_candidates(
     terms: tuple[str, ...],
     hints: tuple[str, ...],
     candidates: dict[str, _Candidate],
+    probes: tuple[str, ...] = (),
 ) -> tuple[str, ...]:
     if not terms:
         return tuple(
@@ -726,20 +798,91 @@ def _rank_candidates(
             for entry_id, _candidate in sorted(candidates.items(), key=lambda item: (-item[1].rrf, item[0]))
         )
     term_set = set(terms)
+    form_to_term: dict[str, str] = {}
+    for term in terms:
+        for variant in _forms(term):
+            form_to_term.setdefault(variant, term)
+    pool_size = len(candidates)
+    lengths: dict[str, int] = {}
+    all_tokens: dict[str, list[str]] = {}
+    for entry_id, candidate in candidates.items():
+        tokens = _WORD.findall(candidate.text.casefold())
+        all_tokens[entry_id] = tokens
+        matched: Counter[str] = Counter()
+        for token in tokens:
+            canonical = form_to_term.get(token)
+            if canonical is not None:
+                matched[canonical] += 1
+        candidate.tokens = matched
+        lengths[entry_id] = len(tokens)
+    # Company anchor: a question term that is a substring of a candidate's document id
+    # (the first content line) names the company the question asks about. Restrict the
+    # ranking to those documents so identical statement boilerplate in other reports
+    # cannot flood the page list.
+    anchor_terms = tuple(term for term in terms if len(term) >= 2 and not term.isdigit())
+    if anchor_terms:
+        anchored_docs = {
+            candidate.text.split("\n", 1)[0].casefold()
+            for candidate in candidates.values()
+            if any(term in candidate.text.split("\n", 1)[0].casefold() for term in anchor_terms)
+        }
+        if anchored_docs:
+            candidates = {
+                entry_id: candidate
+                for entry_id, candidate in candidates.items()
+                if candidate.text.split("\n", 1)[0].casefold() in anchored_docs
+            }
+            pool_size = len(candidates)
+            if not candidates:
+                return ()
+    # Pool-relative inverse document frequency: terms carried by few candidate pages
+    # ("restructuring", "concentration") discriminate; ubiquitous terms ("2022") do not.
+    doc_freq: Counter[str] = Counter()
+    for candidate in candidates.values():
+        for term in candidate.tokens:
+            doc_freq[term] += 1
+    idf = {
+        term: math.log(1.0 + (pool_size - doc_freq.get(term, 0) + 0.5) / (doc_freq.get(term, 0) + 0.5))
+        for term in terms
+    }
+    total_idf = sum(idf.values()) or 1.0
     weights = {term: _term_weight(term) for term in terms}
     total_weight = sum(weights.values()) or 1.0
-    for candidate in candidates.values():
-        candidate.tokens = Counter(token for token in _WORD.findall(candidate.text.casefold()) if token in term_set)
+    avg_len = (sum(lengths[entry_id] for entry_id in candidates) / pool_size) if pool_size else 1.0
     best_rrf = max(candidate.rrf for candidate in candidates.values()) or 1.0
+    pairs = tuple(zip(terms, terms[1:]))
+    probe_tokens = tuple(
+        tuple(_stem(token) for token in _WORD.findall(probe.casefold()))
+        for probe in probes
+    )
     ranked: list[tuple[float, str]] = []
     for entry_id, candidate in candidates.items():
-        matched = sum(weights[term] for term in candidate.tokens)
-        coverage = matched / total_weight
-        score = _RRF_SHARE * (candidate.rrf / best_rrf) + _COVERAGE_SHARE * coverage
+        length = lengths[entry_id] or 1
+        bm25 = 0.0
+        for term, tf in candidate.tokens.items():
+            saturation = (tf * 2.2) / (tf + 1.2 * (1.0 - 0.75 + 0.75 * length / avg_len))
+            bm25 += idf[term] * saturation
+        coverage = sum(weights[term] for term in candidate.tokens) / total_weight
+        score = 0.55 * (bm25 / total_idf) + 0.45 * coverage
+        stemmed = tuple(_stem(token) for token in all_tokens[entry_id])
+        padded = f" {' '.join(stemmed)} "
+        phrase = 0.0
+        if pairs:
+            phrase = sum(
+                0.5 * (idf[left] + idf[right])
+                for left, right in pairs
+                if f" {_stem(left)} {_stem(right)} " in padded
+            )
+            score += 0.6 * (phrase / total_idf)
+        probe_hits = sum(
+            1 for probe in probe_tokens if probe and f" {' '.join(probe)} " in padded
+        )
+        score += 0.15 * min(probe_hits, 2)
         if hints and _mentions(candidate.text, hints):
             score *= _SUBJECT_BONUS
         if _BODY_PAGE_MARKER in candidate.text[:120].casefold():
             score *= _BODY_PAGE_BONUS
+        score += 0.05 * (candidate.rrf / best_rrf)
         ranked.append((-score, entry_id))
     ranked.sort()
     return tuple(entry_id for _score, entry_id in ranked)
