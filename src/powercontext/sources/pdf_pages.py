@@ -476,10 +476,16 @@ def _extract_page_texts(content: bytes) -> tuple[str, ...]:
         if reader.is_encrypted:
             _decrypt_reader(reader)
         page_count = len(reader.pages)
+        # A document that declares pages but yields none did not parse completely:
+        # return no partial result instead of an empty page tuple.
+        if page_count < 1:
+            raise ValueError("PDF document contains no physical pages")  # noqa: TRY003
         texts: list[str] = []
         for index in range(page_count):
             text = reader.pages[index].extract_text()
             texts.append(text if isinstance(text, str) else "")
+        if len(texts) != page_count:
+            raise ValueError("PDF document did not parse completely")  # noqa: TRY003
     except ValueError:
         raise
     except Exception as error:
