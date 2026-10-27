@@ -185,13 +185,33 @@ _FINANCE_PROBES: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
             "profit",
             "profitability",
         }),
-        ("consolidated statement of income", "consolidated statements of income", "operating profit"),
+        (
+            "consolidated statements of income",
+            "consolidated statement of income",
+            "consolidated statements of operations",
+            "consolidated statement of operations",
+            "consolidated statements of earnings",
+            "consolidated statement of earnings",
+            "statements of operations",
+            "statement of operations",
+            "statements of income",
+            "statement of income",
+            "statements of earnings",
+            "statement of earnings",
+            "operating profit",
+        ),
     ),
     (
         frozenset({"capex", "cash", "flow", "flows", "liquidity", "working"}),
         (
-            "consolidated statement of cash flows",
             "consolidated statements of cash flows",
+            "consolidated statement of cash flows",
+            "consolidated statements of cash flow",
+            "consolidated statement of cash flow",
+            "statements of cash flows",
+            "statement of cash flows",
+            "statements of cash flow",
+            "statement of cash flow",
             "capital expenditures",
         ),
     ),
@@ -219,7 +239,17 @@ _FINANCE_PROBES: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
     ),
     (
         frozenset({"asset", "assets", "borrowings", "debt", "leverage", "liabilities", "liability"}),
-        ("consolidated balance sheet", "consolidated balance sheets", "long-term debt"),
+        (
+            "consolidated balance sheets",
+            "consolidated balance sheet",
+            "consolidated statements of financial position",
+            "consolidated statement of financial position",
+            "statements of financial position",
+            "statement of financial position",
+            "balance sheets",
+            "balance sheet",
+            "long-term debt",
+        ),
     ),
     (
         frozenset({"dividend", "dividends", "buyback", "repurchase", "shareholder", "shareholders"}),
@@ -243,11 +273,11 @@ _RAW_PROBES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("p&l", ("consolidated statement of income",)),
 )
 
-_VARIANT_LIMIT = 20
+_VARIANT_LIMIT = 28
 _WINDOW_SIZES = (3, 2)
 _MAX_WINDOW_VARIANTS = 6
 _MAX_TERM_VARIANTS = 3
-_MAX_PROBES = 6
+_MAX_PROBES = 10
 _RRF_OFFSET = 10
 _WHOLE_QUESTION_WEIGHT = 1.2
 _CONTENT_QUESTION_WEIGHT = 1.5
@@ -450,7 +480,61 @@ async def search_pdf_pages(
         citations.append(candidate.citation)
         if len(citations) >= limit:
             break
+    if len(citations) < limit:
+        citations = await _top_up(memory, terms, candidates, seen_pages, citations, limit)
     return tuple(citations)
+
+
+async def _top_up(
+    memory: object,
+    terms: tuple[str, ...],
+    candidates: dict[str, _Candidate],
+    seen_pages: set[str],
+    citations: list[MemoryCitation],
+    limit: int,
+) -> list[MemoryCitation]:
+    """Widen recall with broad single-term probes when ranking under-fills ``limit``."""
+
+    from powercontext.builtin.artifacts.memory.models import MemoryCitation
+    from powercontext.builtin.runtime import GetMemoryEntryRequest, SearchMemoryRequest
+
+    for term in terms:
+        if len(citations) >= limit:
+            break
+        if _term_weight(term) < 1.2:
+            continue
+        page = await memory.search(  # type: ignore[attr-defined]
+            SearchMemoryRequest(query=term, mode="fts", limit=max(limit * 4, 48))
+        )
+        for hit in page.hits:
+            if len(citations) >= limit:
+                break
+            if hit.entry_id in candidates:
+                candidate = candidates[hit.entry_id]
+            else:
+                candidate = _Candidate(
+                    citation=MemoryCitation(
+                        memory_ref=hit.memory_ref,
+                        entry_id=hit.entry_id,
+                        entry_version_id=hit.entry_version_id,
+                    ),
+                    text=hit.text,
+                )
+                candidates[hit.entry_id] = candidate
+            record = await memory.get(GetMemoryEntryRequest(citation=candidate.citation))  # type: ignore[attr-defined]
+            pages = {
+                reference.source_id
+                for reference in record.entry.sources
+                if reference.source_type == PDF_PAGE_SOURCE_NAME
+            }
+            if len(pages) != 1:
+                continue
+            page_key = pages.pop()
+            if page_key in seen_pages:
+                continue
+            seen_pages.add(page_key)
+            citations.append(candidate.citation)
+    return citations
 
 
 @dataclass(slots=True)
