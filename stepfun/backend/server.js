@@ -24,15 +24,16 @@ app.use(express.json({ limit: '64mb' }));
 app.use('/models', express.static(path.join(__dirname, 'public', 'models')));
 
 // Retry: in docker-compose the seekdb service may still be starting when we boot.
+const MAX_ATTEMPTS = Number(process.env.SEEKDB_CONNECT_ATTEMPTS || 60); // ~3 minutes
 let client = null;
-for (let attempt = 1; attempt <= 20; attempt++) {
+for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
   try {
     client = await connectSeekdb();
     console.log(`[seekdb] connected (attempt ${attempt})`);
     break;
   } catch (e) {
-    if (attempt === 20) {
-      console.error('[seekdb] connection failed after 20 attempts:', e.message || e);
+    if (attempt === MAX_ATTEMPTS) {
+      console.error(`[seekdb] connection failed after ${MAX_ATTEMPTS} attempts:`, e.message || e);
       process.exit(1);
     }
     console.warn(`[seekdb] not ready (attempt ${attempt}): ${e.message || e}; retrying in 3s`);

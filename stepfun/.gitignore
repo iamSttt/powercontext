@@ -1,7 +1,8 @@
 # dependencies
 node_modules/
-# ONNX model files (~118MB, download via scripts/download-models.sh)
-backend/public/models/
+# ONNX models: ship the INT8 (q8) model so the app runs without any network download.
+# The fp32 model (~95MB, used only by the quantization eval) is not committed.
+backend/public/models/Xenova/bge-small-zh-v1.5/onnx/model.onnx
 # build outputs
 frontend/dist/
 backend/*.log

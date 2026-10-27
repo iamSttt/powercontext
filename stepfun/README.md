@@ -39,7 +39,8 @@
 | @huggingface/transformers | ^3.7 | 浏览器端 embedding 推理 |
 | Vite | ^6 | 前端开发服务器 |
 | 浏览器 | Chrome/Edge 最新版 | WebGPU 需要 Chrome 113+/Edge 113+ |
-| 模型 | Xenova/bge-small-zh-v1.5（HF） | 512 维中文 embedding，q8 量化 |
+| 模型 | Xenova/bge-small-zh-v1.5（HF） | 512 维中文 embedding，INT8/q8 |
+| 模型文件 | `backend/public/models/.../onnx/model_quantized.onnx` | **已随仓库提交（24MB）**，运行无需联网下载；fp32（95MB，仅评测用）可用 `scripts/download-models.sh` 获取 |
 
 ## 启动步骤
 

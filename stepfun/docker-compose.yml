@@ -6,7 +6,14 @@ services:
     ports:
       - "2881:2881"
     volumes:
-      - ./data/seekdb:/var/lib/oceanbase
+      # seekdb >= 1.4 stores its data under /var/lib/seekdb
+      - ./data/seekdb:/var/lib/seekdb
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/2881'"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
 
   app:
     build: .
@@ -18,4 +25,5 @@ services:
       SEEKDB_USER: root
       SEEKDB_PASSWORD: ""
     depends_on:
-      - seekdb
+      seekdb:
+        condition: service_healthy

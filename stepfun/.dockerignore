@@ -1,6 +1,7 @@
 **/node_modules
-backend/public/models
 frontend/dist
 data
 .git
 *.log
+# fp32 model is eval-only; the committed q8 model is what the app needs
+backend/public/models/Xenova/bge-small-zh-v1.5/onnx/model.onnx
