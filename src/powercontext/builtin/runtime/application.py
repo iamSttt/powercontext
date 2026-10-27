@@ -166,6 +166,7 @@ from powercontext.builtin.runtime._scope_cache import (
     ScopeCacheObserver,
     ScopeEvictor,
 )
+from powercontext.builtin.runtime.context_pack import ContextPack, ContextPackDelta
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
@@ -299,6 +300,7 @@ if TYPE_CHECKING:
 
     from powercontext.builtin.handoff_report.application import HandoffReportApplication
     from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
+    from powercontext.builtin.runtime.source_lifecycle import SourceLifecycleApplication
 
 
 class TopicMemorySearch(Protocol):
@@ -846,6 +848,27 @@ class ScopedContextApplication:
             if authorize_scopes is not None:
                 await authorize_scopes((self.scope_id, *scope.context_references))
             return await self._prepare(request, scope)
+
+    async def prepare_incremental(
+        self,
+        request: PrepareContextRequest,
+        /,
+        *,
+        base_pack: ContextPack | None = None,
+    ) -> ContextPack | ContextPackDelta:
+        """Prepare this turn's context as a complete pack, or as a delta from ``base_pack``.
+
+        The target body always comes from the ordinary :meth:`prepare`, so the citation
+        identities and the byte budget are unchanged. Without ``base_pack`` the caller
+        receives the complete pack; with one, only the chunks that differ from that base
+        pack travel, and the receiver rebuilds the target from the two serialized parts.
+        """
+
+        context = await self.prepare(request)
+        target = ContextPack.from_content(context.content or "")
+        if base_pack is None:
+            return target
+        return ContextPackDelta.between(base_pack, target)
 
     async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
         build, effort = await self._prepare_build(request, scope)
@@ -2569,6 +2592,38 @@ class ScopedMemoryApplication:
                 entry=_entry_record(updated, retired),
             )
 
+    async def set_active(
+        self,
+        entry_ids: Sequence[str],
+        /,
+        *,
+        active: bool,
+        reason: str | None = None,
+    ) -> MemoryMutationResult | None:
+        """Set the state of current entry versions without creating body versions."""
+
+        wanted = set(entry_ids)
+        if not wanted:
+            return None
+        async with self._runtime._context(
+            self.scope_id,
+            embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
+        ) as context:
+            async with self._runtime._locked(self.scope_id):
+                service = context.artifacts.memory
+                current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                if current is None:
+                    return None
+                entries = tuple(entry for entry in await service.entries(current) if entry.entry_id in wanted)
+                if not entries:
+                    return None
+                updated = (
+                    await service.reactivate(current, entries=entries, reason=reason)
+                    if active
+                    else await service.forget(current, entries=entries, reason=reason)
+                )
+        return MemoryMutationResult(previous_revision=current.revision, memory_ref=updated.as_ref())
+
     async def changes(self, *, since_revision: int | None = None) -> MemoryChangesPage:
         async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
@@ -2667,6 +2722,15 @@ class ScopedTopicMemoryApplication:
                     query_embedding,
                     embedding_timeout_seconds,
                 )
+        inactive_topics = await self._runtime.lifecycle.for_scope(self.scope_id).inactive_topic_artifact_ids()
+        if inactive_topics:
+            result = result.model_copy(
+                update={
+                    "hits": tuple(
+                        hit for hit in result.hits if hit.artifact_ref.artifact_id not in inactive_topics
+                    )
+                }
+            )
         observer = self._runtime._topic_memory_search_observer
         if observer is not None:
             try:
@@ -3111,6 +3175,7 @@ class BuiltinRuntime:
         self.memory = MemoryApplication(self)
         self.topic_memory = TopicMemoryApplication(self)
         self.records = RecordApplication(self)
+        self._source_lifecycle: SourceLifecycleApplication | None = None
         self.prompts = PromptApplication(self)
         self.review = ReviewApplication(self)
         self.skill = SkillApplication(self)
@@ -3128,6 +3193,16 @@ class BuiltinRuntime:
 
     async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         await self.close()
+
+    @property
+    def lifecycle(self) -> SourceLifecycleApplication:
+        """Expose Scope-bound Source Lifecycle coordination for this Runtime."""
+
+        if self._source_lifecycle is None:
+            from powercontext.builtin.runtime.source_lifecycle import open_source_lifecycle
+
+            self._source_lifecycle = open_source_lifecycle(self)
+        return self._source_lifecycle
 
     async def capabilities(self) -> RuntimeCapabilities:
         async with self._operation():

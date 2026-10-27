@@ -34,6 +34,7 @@ from powercontext.builtin.runtime.prepared_code import (
     PreparedCodeCandidate,
     assemble_code,
 )
+from powercontext.builtin.runtime.prepared_evidence import EvidenceSource, build_evidence_selection
 from powercontext.builtin.runtime.prepared_text import (
     TRUST_POLICY,
     ContextTextItem,
@@ -106,6 +107,7 @@ class PreparedContextBuild:
     origins: tuple[PreparedContextOrigin, ...]
     omissions: PreparedContextOmissions = PreparedContextOmissions()
     code_origins: tuple[CodeEvidenceRef, ...] = ()
+    fragments: tuple[PreparedContextFragment, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,16 @@ class MemoryEntryAddress:
 
 
 PreparedContextOrigin = MemoryCitation | ArtifactRef | MemoryEntryAddress | ArtifactAddress
+
+
+@dataclass(frozen=True)
+class PreparedContextFragment:
+    """One delivered literal span of one Memory entry, with its exact character range."""
+
+    address: MemoryEntryAddress
+    start: int
+    end: int
+    text: str
 
 
 @dataclass(frozen=True)
@@ -235,6 +247,12 @@ class PreparedContextBuilder:
         if sum(len(candidates.hits) for candidates in experience_candidates) > self.experience_candidate_limit:
             raise PreparedContextInvariantError("experience-candidate-limit")
 
+        if request.evidence_selection:
+            return self._evidence_result(
+                request,
+                current_scope_id=current_scope_id,
+                memory_candidates=memory_candidates,
+            )
         content, origins, omissions = self._select_entries(
             request=request,
             current_scope_id=current_scope_id,
@@ -277,6 +295,20 @@ class PreparedContextBuilder:
         counters because both go through :meth:`_select_entries`.
         """
 
+        if request.evidence_selection:
+            evidence = build_evidence_selection(
+                query=request.query,
+                sources=self._evidence_sources(current_scope_id, memory_candidates),
+                max_bytes=request.max_bytes,
+                limit=self.entry_limit,
+            )
+            return RecallBudgetView(
+                max_bytes=request.max_bytes,
+                delivered_items=len(evidence.fragments),
+                truncated_items=0,
+                dropped_items=0,
+                unused_bytes=max(0, request.max_bytes - evidence.byte_count),
+            )
         content, origins, omissions = self._select_entries(
             request=request,
             current_scope_id=current_scope_id,
@@ -432,6 +464,82 @@ class PreparedContextBuilder:
             return None, (), omissions
         content = render_context_text(included, assembly)
         return content, tuple(origins), omissions
+
+    def _evidence_result(
+        self,
+        request: PrepareContextRequest,
+        *,
+        current_scope_id: str | None,
+        memory_candidates: Sequence[PreparedMemoryCandidates],
+    ) -> PreparedContextBuild:
+        """Deliver query-selected literal Memory spans inside the one whole-context budget."""
+
+        sources = self._evidence_sources(current_scope_id, memory_candidates)
+        selection = build_evidence_selection(
+            query=request.query,
+            sources=sources,
+            max_bytes=request.max_bytes,
+            limit=self.entry_limit,
+        )
+        if selection.content is None:
+            return PreparedContextBuild(context=self.empty(), origins=())
+        fragments = tuple(
+            PreparedContextFragment(
+                address=_evidence_address(sources[fragment.source_index]),
+                start=fragment.start,
+                end=fragment.end,
+                text=fragment.text,
+            )
+            for fragment in selection.fragments
+        )
+        origins: tuple[PreparedContextOrigin, ...] = tuple(
+            _evidence_origin(sources[fragment.source_index]) for fragment in selection.fragments
+        )
+        return PreparedContextBuild(
+            context=PreparedContext(
+                status="ready",
+                content=selection.content,
+                content_bytes=selection.byte_count,
+            ),
+            origins=origins,
+            fragments=fragments,
+        )
+
+    def _evidence_sources(
+        self,
+        current_scope_id: str | None,
+        memory_candidates: Sequence[PreparedMemoryCandidates],
+    ) -> tuple[EvidenceSource, ...]:
+        """Flatten recalled Memory candidates into the selector's exact-citation inputs."""
+
+        sources: list[EvidenceSource] = []
+        seen: set[tuple[str, str, str]] = set()
+        for candidates in memory_candidates:
+            if not candidates.hits:
+                continue
+            if candidates.memory_ref is None:
+                raise PreparedContextInvariantError("memory-ref-missing")
+            memory_ref = candidates.memory_ref
+            for hit in candidates.hits:
+                if hit.memory_ref != memory_ref:
+                    raise PreparedContextInvariantError("memory-ref-mismatch")
+                identity = (candidates.scope_id, hit.entry_id, hit.entry_version_id)
+                if identity in seen:
+                    continue
+                if not hit.entry_id.strip() or not hit.entry_version_id.strip() or not hit.text.strip():
+                    continue
+                seen.add(identity)
+                sources.append(
+                    EvidenceSource(
+                        scope_id=candidates.scope_id,
+                        is_current_scope=candidates.scope_id == current_scope_id,
+                        memory_ref=memory_ref,
+                        entry_id=hit.entry_id,
+                        entry_version_id=hit.entry_version_id,
+                        text=hit.text,
+                    )
+                )
+        return tuple(sources)
 
     def _profile_entries(self, candidates: Sequence[PreparedProfileCandidate]) -> tuple[_PreparedContextEntry, ...]:
         entries = []
@@ -683,6 +791,28 @@ def _interleave_groups(groups: Sequence[Sequence[_Item]]) -> tuple[_Item, ...]:
     for index in range(max((len(group) for group in groups), default=0)):
         ordered.extend(group[index] for group in groups if index < len(group))
     return tuple(ordered)
+
+
+def _evidence_address(source: EvidenceSource) -> MemoryEntryAddress:
+    """Address one delivered span's exact Memory entry version across Scope boundaries."""
+
+    return MemoryEntryAddress(
+        memory=ArtifactAddress(scope_id=source.scope_id, artifact=source.memory_ref),
+        entry_id=source.entry_id,
+        entry_version_id=source.entry_version_id,
+    )
+
+
+def _evidence_origin(source: EvidenceSource) -> PreparedContextOrigin:
+    """Cite a current-Scope span as a citation and a foreign-Scope span by its exact address."""
+
+    if source.is_current_scope:
+        return MemoryCitation(
+            memory_ref=source.memory_ref,
+            entry_id=source.entry_id,
+            entry_version_id=source.entry_version_id,
+        )
+    return _evidence_address(source)
 
 
 def _render(entries: Sequence[_PreparedContextEntry]) -> str:

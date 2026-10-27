@@ -135,8 +135,22 @@ class RuntimeConfig(BaseModel):
             raise ValueError("Worker quota must be a positive integer")  # noqa: TRY003, TRY004 - Pydantic validation
         return value
 
+    @field_validator("memory_source_count_threshold", "topic_memory_source_count_threshold", mode="before")
+    @classmethod
+    def reject_non_integer_source_count_threshold(cls, value: Any) -> Any:
+        # Lax Pydantic coercion would accept True, "3", and 1.0 for an int field;
+        # a count threshold must state an integral number or stay unset.
+        if value is None or type(value) is int:
+            return value
+        raise ValueError("Source count threshold must be a positive integer or None")  # noqa: TRY003 - Pydantic validation
+
     scope_cache_size: int = Field(default=DEFAULT_SCOPE_CACHE_SIZE, ge=1)
     source_window_limit: int = Field(default=100, ge=1)
+    # An unset count threshold leaves automatic processing on its time condition
+    # alone; a positive count admits one invocation once that many journal
+    # identities are pending, without waiting for a schedule.
+    memory_source_count_threshold: int | None = Field(default=None, ge=1)
+    topic_memory_source_count_threshold: int | None = Field(default=None, ge=1)
     context_assembly_max_entries: int = Field(default=8, ge=1)
     memory_extraction_profile: MemoryExtractionProfile = MemoryExtractionProfile.CODING
     memory_rerank_enabled: bool = False

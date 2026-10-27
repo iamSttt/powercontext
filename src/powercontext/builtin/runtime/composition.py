@@ -83,6 +83,7 @@ from powercontext.builtin.inference.usage import (
 from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
+from powercontext.builtin.persistence.oceanbase.memory_hybrid import OceanBaseMemoryHybridIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryFTSIndex,
     OceanBaseMemoryVectorIndex,
@@ -156,6 +157,7 @@ from powercontext.builtin.runtime.readiness import (
 )
 from powercontext.builtin.runtime.recall_sufficiency import RecallSufficiencyPolicy
 from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.runtime.source_count_trigger import SourceCountBinding, SourceCountTrigger
 from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWorkerSpec,
     run_topic_memory_worker,
@@ -656,6 +658,14 @@ async def open_builtin_runtime(
         runtime.artifact_processing_supervisor = await resources.enter_async_context(
             _open_artifact_processing_supervisor(config, contexts, processing_bindings, tracing=tracing)
         )
+        configured_count_bindings = source_count_bindings(
+            config,
+            topic_memory_processing_available=topic_memory_processing_available,
+        )
+        if configured_count_bindings:
+            runtime.source_count_trigger = await resources.enter_async_context(
+                SourceCountTrigger(runtime, contexts, configured_count_bindings)
+            )
         contexts.profiles.operation_context = runtime._operation
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
@@ -819,6 +829,31 @@ def _topic_memory_provider_available(config: BuiltinConfig) -> bool:
     return True
 
 
+def source_count_bindings(
+    config: BuiltinConfig,
+    *,
+    topic_memory_processing_available: bool,
+) -> tuple[SourceCountBinding, ...]:
+    """Declare count admission only where the accepting Family can run."""
+
+    runtime = config.runtime
+    if runtime.artifact_processing_role == "api" or config.inference.generation_model is None:
+        return ()
+    declared = set(processing_capabilities(config))
+    bindings: list[SourceCountBinding] = []
+    if runtime.memory_source_count_threshold is not None and "memory" in declared:
+        bindings.append(SourceCountBinding("memory", FAMILY_BINDINGS["memory"], runtime.memory_source_count_threshold))
+    if runtime.topic_memory_source_count_threshold is not None and topic_memory_processing_available:
+        bindings.append(
+            SourceCountBinding(
+                "topic-memory",
+                TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                runtime.topic_memory_source_count_threshold,
+            )
+        )
+    return tuple(bindings)
+
+
 @asynccontextmanager
 async def _open_artifact_processing_supervisor(
     config: BuiltinConfig,
@@ -960,9 +995,16 @@ async def open_builtin_contexts(
                 await contexts.aclose_usage_recorder()
         return
     experience_index = OceanBaseExperienceFTSIndex()
-    indexes = [OceanBaseMemoryFTSIndex()]
+    lexical_index = OceanBaseMemoryFTSIndex()
+    indexes: list[MemoryIndex] = [lexical_index]
     if embedding_model is not None:
-        indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
+        # Hybrid retrieval answers both channels from one native statement.
+        indexes = [
+            OceanBaseMemoryHybridIndex(
+                lexical_index,
+                OceanBaseMemoryVectorIndex(embedding_model.profile),
+            )
+        ]
     index = CompositeMemoryIndex(*indexes)
     topic_indexes: list[TopicMemoryIndex] = [OceanBaseTopicMemoryFTSIndex()]
     if embedding_model is not None:
