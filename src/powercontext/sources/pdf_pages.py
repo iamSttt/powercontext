@@ -409,6 +409,12 @@ def pdf_page_source_id(document_id: str, document_sha256: str, page_number: int)
 def parse_pdf_document(value: PDFDocumentInput) -> tuple[PDFPageInput, ...]:
     """Extract every physical page of one complete original PDF document."""
 
+    # The declared contract rejects a blank document id at parse time, before any
+    # page identity is built, so callers see one atomic ValueError instead of a
+    # tuple of pages that only fail later during registry resolution.
+    document_id = getattr(value, "document_id", None)
+    if not isinstance(document_id, str) or not document_id.strip():
+        raise ValueError("document_id must not be blank")  # noqa: TRY003
     document_sha256 = hashlib.sha256(value.content).hexdigest()
     texts = _extract_page_texts(value.content)
     return tuple(
