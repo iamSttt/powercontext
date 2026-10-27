@@ -1,0 +1,7 @@
+# dependencies
+node_modules/
+# ONNX model files (~118MB, download via scripts/download-models.sh)
+backend/public/models/
+# build outputs
+frontend/dist/
+backend/*.log

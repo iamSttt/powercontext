@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>端侧知识库 · seekdb 混合检索</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+        margin: 0; padding: 24px; max-width: 1080px; margin-inline: auto;
+        line-height: 1.6;
+      }
+      h1 { font-size: 1.4rem; margin: 0 0 4px; }
+      .sub { color: #888; font-size: .85rem; margin-bottom: 16px; }
+      .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+      .badge {
+        border: 1px solid #4a9eff; color: #4a9eff; border-radius: 20px;
+        padding: 2px 12px; font-size: .8rem;
+      }
+      .badge.warn { border-color: #e6a23c; color: #e6a23c; }
+      .card {
+        border: 1px solid #ddd; border-radius: 10px; padding: 16px;
+        margin-bottom: 16px;
+      }
+      textarea { width: 100%; min-height: 120px; padding: 10px; border-radius: 8px;
+        border: 1px solid #ccc; font-size: .95rem; resize: vertical; }
+      button {
+        padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer;
+        background: #4a9eff; color: #fff; font-size: .95rem;
+      }
+      button:disabled { opacity: .5; cursor: not-allowed; }
+      button.ghost { background: transparent; color: #4a9eff; border: 1px solid #4a9eff; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+      .result-item { border-left: 3px solid #4a9eff; padding: 8px 12px; margin: 8px 0;
+        background: rgba(74,158,255,.05); border-radius: 0 8px 8px 0; }
+      .result-item .meta { color: #888; font-size: .78rem; }
+      .result-item .doc { margin: 4px 0; white-space: pre-wrap; }
+      .stats { font-size: .8rem; color: #666; }
+      .progress { height: 6px; background: #eee; border-radius: 3px; margin: 8px 0; overflow: hidden; }
+      .progress > div { height: 100%; background: #4a9eff; width: 0; transition: width .3s; }
+      .msg { color: #e6a23c; font-size: .85rem; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <h1>端侧知识库 · seekdb 混合检索</h1>
+    <div class="sub">文档向量化在浏览器本地完成（Transformers.js），向量 + 全文混合检索由 seekdb 执行</div>
+    <div class="badges" id="badges">
+      <span class="badge" id="backend-badge">推理后端：检测中…</span>
+      <span class="badge" id="db-badge">数据库：连接中…</span>
+      <span class="badge" id="quant-badge">模型：INT8 (q8)</span>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <span>知识库：</span>
+        <select id="collection-select" style="padding:6px;border-radius:8px;"></select>
+        <input id="new-collection" placeholder="新知识库名称" style="padding:6px;border-radius:8px;" />
+        <button id="btn-create" class="ghost">新建</button>
+        <button id="btn-delete" class="ghost">删除当前</button>
+        <button id="btn-refresh-cols" class="ghost">刷新</button>
+      </div>
+      <div class="row">
+        <span>导入文本（每段一个条目；也支持 .txt/.md 文件，按空行切分）：</span>
+      </div>
+      <textarea id="import-text" placeholder="粘贴要导入的文本内容…"></textarea>
+      <div class="row">
+        <input type="file" id="import-file" accept=".txt,.md" multiple />
+        <button id="btn-import">导入并向量化（本地推理）</button>
+      </div>
+      <div class="progress"><div id="import-progress"></div></div>
+      <div class="msg" id="import-msg"></div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <input id="query-text" placeholder="输入查询，如：数据库向量检索" style="flex:1;padding:8px;border-radius:8px;border:1px solid #ccc;" />
+        <select id="search-mode" style="padding:8px;border-radius:8px;">
+          <option value="hybrid">混合检索（向量+全文）</option>
+          <option value="vector">仅向量</option>
+        </select>
+        <button id="btn-search">搜索</button>
+      </div>
+      <div id="results"></div>
+      <div class="stats" id="search-stats"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
