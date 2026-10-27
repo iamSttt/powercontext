@@ -6,7 +6,7 @@
 |---|---|
 | 项目名称 | PaperLens · 论文速读助手 |
 | 一句话介绍 | 导入论文后自动分块写入 seekdb，用自然语言提问即得到带原文引用的回答 |
-| 项目网站（Qoder Sites） | **待填写**：`<Qoder Sites 发布后的网址>` |
+| 项目网站（Qoder Sites） | **https://paperlens-dn11pqe5vk6.qoder.zone**（已发布，未登录可访问） |
 | 代码位置 | 本仓库 `qoder/paperlens/` |
 | Qoder 账号 UID | `01a17d7d-ff7c-7bd9-9c16-4e8f6f9223da` |
 | 技术栈 | FastAPI + 原生前端 + **seekdb（IK 全文索引）** + **MiniMax-M3.1-Flash** |
@@ -52,7 +52,7 @@ python -m uvicorn app.main:app --port 8000
 
 | 平台字段 | 值 |
 |---|---|
-| 项目网站网址 | `<Qoder Sites URL>` |
+| 项目网站网址 | `https://paperlens-dn11pqe5vk6.qoder.zone` |
 | 代码仓库地址 | `https://github.com/iamSttt/powercontext`（目录 `qoder/paperlens/`） |
 | Qoder 账号 UID | `01a17d7d-ff7c-7bd9-9c16-4e8f6f9223da` |
 | 其余材料 | 运行说明 + 验证样例 + 开发记录截图 |
